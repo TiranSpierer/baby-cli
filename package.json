@@ -1,0 +1,26 @@
+{
+  "name": "baby-cli",
+  "version": "0.1.0",
+  "description": "CLI for searching and inspecting products from Israeli baby stores",
+  "type": "module",
+  "bin": { "baby-cli": "dist/cli.js" },
+  "files": ["dist", "README.md", "docs"],
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsc && node -e \"require('fs').chmodSync('dist/cli.js',0o755)\"",
+    "test": "npm run build && node --test tests/*.test.js",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "commander": "^14.0.0",
+    "turndown": "^7.2.0",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/turndown": "^5.0.5",
+    "typescript": "^5.9.0"
+  }
+}
