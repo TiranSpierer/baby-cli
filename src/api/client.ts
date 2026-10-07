@@ -54,6 +54,15 @@ async function cycleRequest(url: string): Promise<Response> {
   return new Response(typeof result.data === "string" ? result.data : String(result.data ?? ""), { status: result.status, headers });
 }
 
+async function nativeRequest(url: string): Promise<Response> {
+  const response = await fetch(url, {
+    headers: { accept: "*/*", "accept-language": "he-IL,he;q=0.9,en;q=0.7", "user-agent": USER_AGENT },
+    redirect: "follow", signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  const body = await response.arrayBuffer();
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
 async function withRequestSlot<T>(operation: () => Promise<T>): Promise<T> {
   if (activeRequests >= MAX_CONCURRENT_REQUESTS) await new Promise<void>((resolve) => waiters.push(resolve));
   activeRequests++;
@@ -73,9 +82,7 @@ export async function request(url: string): Promise<Response> {
   for (let attempt = 0; attempt < RETRIES; attempt++) {
     let delay = retryDelay(attempt, null);
     try {
-      const response = await withRequestSlot(() => attempt === 0
-        ? fetch(url, { headers: { accept: "*/*", "accept-language": "he-IL,he;q=0.9,en;q=0.7", "user-agent": USER_AGENT }, redirect: "follow", signal: AbortSignal.timeout(TIMEOUT_MS) })
-        : cycleRequest(url));
+      const response = await withRequestSlot(() => attempt === 0 ? nativeRequest(url) : cycleRequest(url));
       if (response.ok) return response;
       delay = retryDelay(attempt, response.headers.get("retry-after"));
       const body = (await response.text()).slice(0, 240).replace(/\s+/g, " ").trim();

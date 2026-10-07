@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { request } from "../dist/api/client.js";
+import { getText, request } from "../dist/api/client.js";
 
 test("non-retryable HTTP errors are attempted once", async (context) => {
   const original = globalThis.fetch; let attempts = 0;
@@ -19,5 +19,18 @@ test("network concurrency is globally bounded", async (context) => {
   };
   context.after(() => { globalThis.fetch = original; });
   await Promise.all(Array.from({ length: 12 }, (_, index) => request(`https://example.test/${index}`)));
+  assert.equal(peak, 4);
+});
+
+test("concurrency remains bounded until response bodies finish", async (context) => {
+  const original = globalThis.fetch; let active = 0; let peak = 0;
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      active++; peak = Math.max(peak, active); controller.enqueue(new TextEncoder().encode("x"));
+      setTimeout(() => { active--; controller.close(); }, 20);
+    },
+  }), { status: 200, headers: { "content-type": "text/plain" } });
+  context.after(() => { globalThis.fetch = original; });
+  await Promise.all(Array.from({ length: 12 }, (_, index) => getText(`https://example.test/stream/${index}`)));
   assert.equal(peak, 4);
 });
