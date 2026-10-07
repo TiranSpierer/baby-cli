@@ -51,7 +51,8 @@ async function cycleRequest(url: string): Promise<Response> {
   });
   const headers = new Headers();
   for (const [key, value] of Object.entries(result.headers ?? {})) headers.set(key, Array.isArray(value) ? value.join(", ") : String(value));
-  return new Response(typeof result.data === "string" ? result.data : String(result.data ?? ""), { status: result.status, headers });
+  const body = [204, 205, 304].includes(result.status) ? null : typeof result.data === "string" ? result.data : String(result.data ?? "");
+  return new Response(body, { status: result.status, headers });
 }
 
 async function nativeRequest(url: string): Promise<Response> {
@@ -60,7 +61,7 @@ async function nativeRequest(url: string): Promise<Response> {
     redirect: "follow", signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   const body = await response.arrayBuffer();
-  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  return new Response([204, 205, 304].includes(response.status) ? null : body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
 async function withRequestSlot<T>(operation: () => Promise<T>): Promise<T> {
@@ -77,16 +78,33 @@ function retryDelay(attempt: number, retryAfter: string | null): number {
   return Math.min(10_000, Math.max(serverDelay, 750 * 2 ** attempt)) + Math.floor(Math.random() * 250);
 }
 
-export async function request(url: string): Promise<Response> {
+function challengePage(body: string): boolean {
+  const start = body.slice(0, 20_000).toLowerCase();
+  return start.includes("verifying your connection") || start.includes("just a moment") || start.includes("cf-chl-") || start.includes("challenge-platform");
+}
+
+export async function request(url: string, expected: "any" | "json" | "text" = "any"): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt < RETRIES; attempt++) {
     let delay = retryDelay(attempt, null);
     try {
       const response = await withRequestSlot(() => attempt === 0 ? nativeRequest(url) : cycleRequest(url));
-      if (response.ok) return response;
+      if (response.ok) {
+        if (expected !== "any") {
+          const body = await response.clone().text();
+          if (challengePage(body)) throw new HttpError(503, `Shopify returned a challenge page from ${new URL(url).hostname}`);
+          if (expected === "json") {
+            try { JSON.parse(body); }
+            catch { throw new HttpError(503, `Shopify returned invalid JSON from ${new URL(url).hostname}`); }
+          }
+        }
+        return response;
+      }
       delay = retryDelay(attempt, response.headers.get("retry-after"));
       const body = (await response.text()).slice(0, 240).replace(/\s+/g, " ").trim();
-      const error = new HttpError(response.status, `HTTP ${response.status} from ${new URL(url).hostname}${body ? `: ${body}` : ""}`);
+      const error = new HttpError(response.status, challengePage(body)
+        ? `Shopify challenge (HTTP ${response.status}) from ${new URL(url).hostname}`
+        : `HTTP ${response.status} from ${new URL(url).hostname}${body ? `: ${body}` : ""}`);
       if (!retryable(response.status) || attempt === RETRIES - 1) throw error;
       lastError = error;
     } catch (error) {
@@ -100,13 +118,10 @@ export async function request(url: string): Promise<Response> {
 }
 
 export async function getJson<T>(url: string): Promise<T> {
-  const response = await request(url);
-  const type = (response.headers.get("content-type") ?? "").toLowerCase();
-  if (!type.includes("json") && !type.includes("javascript"))
-    throw new Error(`expected JSON from ${new URL(url).hostname}, received ${type || "unknown content type"}`);
+  const response = await request(url, "json");
   return JSON.parse(await response.text()) as T;
 }
 
 export async function getText(url: string): Promise<string> {
-  return (await request(url)).text();
+  return (await request(url, "text")).text();
 }

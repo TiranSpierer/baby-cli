@@ -34,3 +34,10 @@ test("concurrency remains bounded until response bodies finish", async (context)
   await Promise.all(Array.from({ length: 12 }, (_, index) => getText(`https://example.test/stream/${index}`)));
   assert.equal(peak, 4);
 });
+
+test("bodyless success responses remain valid", async (context) => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response(null, { status: 204 });
+  context.after(() => { globalThis.fetch = original; });
+  assert.equal((await request("https://example.test/empty")).status, 204);
+});

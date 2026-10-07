@@ -17,12 +17,14 @@ test("product handles are accepted directly or extracted from matching URLs", ()
   assert.equal(extractHandle("https://shilav.co.il/collections/x/products/%D7%9E%D7%95%D7%A6%D7%A8?variant=1", store), "מוצר");
   assert.equal(extractHandle("https://shilav-prod.myshopify.com/products/item", store), "item");
   assert.throws(() => extractHandle("https://example.com/products/x", store), /does not belong/);
+  assert.throws(() => extractHandle("https://shilav.co.il/products/x/extra", store), /must contain/);
 });
 
 test("collection handles validate full URL ownership", () => {
   const store = getStore("baby-star");
   assert.equal(extractCollectionHandle("https://www.baby-star.co.il/collections/%D7%90%D7%9E%D7%91%D7%98%D7%99%D7%95%D7%AA?sort=price", store), "אמבטיות");
   assert.throws(() => extractCollectionHandle("https://example.com/collections/x", store), /does not belong/);
+  assert.throws(() => extractCollectionHandle("https://www.baby-star.co.il/collections/x/products/y", store), /must contain/);
 });
 
 test("search handles use Shopify positions, deduplicate, and preserve relevance", () => {

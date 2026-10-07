@@ -22,7 +22,7 @@ export function extractHandle(value: string, store: Store): string {
   const url = new URL(input);
   if (![store.baseUrl, store.shopifyUrl].some((base) => url.hostname.replace(/^www\./, "") === new URL(base).hostname.replace(/^www\./, "")))
     throw new Error(`product URL does not belong to ${store.name}`);
-  const match = url.pathname.match(/\/products\/([^/]+)/);
+  const match = url.pathname.match(/^(?:\/collections\/[^/]+)?\/products\/([^/]+)\/?$/);
   if (!match) throw new Error("product URL must contain /products/<handle>");
   return decode(match[1], "product URL");
 }
@@ -34,7 +34,7 @@ export function extractCollectionHandle(value: string, store: Store): string {
   const url = new URL(input);
   if (![store.baseUrl, store.shopifyUrl].some((base) => url.hostname.replace(/^www\./, "") === new URL(base).hostname.replace(/^www\./, "")))
     throw new Error(`collection URL does not belong to ${store.name}`);
-  const match = url.pathname.match(/\/collections\/([^/]+)/);
+  const match = url.pathname.match(/^\/collections\/([^/]+)\/?$/);
   if (!match) throw new Error("collection URL must contain /collections/<handle>");
   return decode(match[1], "collection URL");
 }

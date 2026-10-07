@@ -90,6 +90,7 @@ function sortCards(products: Record<string, unknown>[], sort?: string): void {
 export async function searchProducts(input: { query: string; stores?: string; limit?: number; inStock?: boolean; details?: boolean; sort?: string }): Promise<unknown> {
   const query = input.query.trim();
   if (!query) throw new Error("search query cannot be empty");
+  if ([...query].length < 2) throw new Error("search query must contain at least 2 characters");
   const limit = input.limit ?? 5;
   const stores = selectStores(input.stores ?? "all");
   const results = await Promise.all(stores.map(async (store) => {
