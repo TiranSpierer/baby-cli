@@ -2,6 +2,7 @@
 import { Command, Option } from "commander";
 import { collectionProducts, listCollections, productInfo, searchCollections, searchProducts, storesList } from "./core.js";
 import { toYaml } from "./format.js";
+import { closeClient } from "./api/client.js";
 
 function positive(value: string): number {
   const number = Number(value);
@@ -13,7 +14,7 @@ function output(task: Promise<unknown> | unknown): Promise<void> {
 }
 
 export function buildProgram(): Command {
-  const program = new Command().name("baby-cli").description("Search and inspect products from Israeli baby stores").version("0.1.1").showHelpAfterError();
+  const program = new Command().name("baby-cli").description("Search and inspect products from Israeli baby stores").version("0.1.2").showHelpAfterError();
   program.command("stores").description("List supported stores").action(() => output(storesList()));
   program.command("search <query>").description("Search live baby-store catalogs")
     .option("--store <stores>", "store ID, comma-separated IDs, or all", "all")
@@ -39,7 +40,8 @@ export function buildProgram(): Command {
 }
 
 export async function main(argv = process.argv): Promise<void> {
-  await buildProgram().parseAsync(argv);
+  try { await buildProgram().parseAsync(argv); }
+  finally { await closeClient(); }
 }
 
-main().catch((error) => { process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });
+void main().catch((error) => { process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 1; });

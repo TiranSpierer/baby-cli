@@ -15,6 +15,7 @@ test("product handles are accepted directly or extracted from matching URLs", ()
   const store = getStore("shilav");
   assert.equal(extractHandle("מוצר-אחד", store), "מוצר-אחד");
   assert.equal(extractHandle("https://shilav.co.il/collections/x/products/%D7%9E%D7%95%D7%A6%D7%A8?variant=1", store), "מוצר");
+  assert.equal(extractHandle("https://shilav-prod.myshopify.com/products/item", store), "item");
   assert.throws(() => extractHandle("https://example.com/products/x", store), /does not belong/);
 });
 

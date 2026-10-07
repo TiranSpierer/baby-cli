@@ -20,7 +20,7 @@ export function extractHandle(value: string, store: Store): string {
   if (!input) throw new Error("product handle cannot be empty");
   if (!/^https?:\/\//i.test(input)) return decode(input.split(/[?#]/)[0], "product handle");
   const url = new URL(input);
-  if (url.hostname.replace(/^www\./, "") !== new URL(store.baseUrl).hostname.replace(/^www\./, ""))
+  if (![store.baseUrl, store.shopifyUrl].some((base) => url.hostname.replace(/^www\./, "") === new URL(base).hostname.replace(/^www\./, "")))
     throw new Error(`product URL does not belong to ${store.name}`);
   const match = url.pathname.match(/\/products\/([^/]+)/);
   if (!match) throw new Error("product URL must contain /products/<handle>");
@@ -32,7 +32,7 @@ export function extractCollectionHandle(value: string, store: Store): string {
   if (!input) throw new Error("collection handle cannot be empty");
   if (!/^https?:\/\//i.test(input)) return decode(input.split(/[?#]/)[0], "collection handle");
   const url = new URL(input);
-  if (url.hostname.replace(/^www\./, "") !== new URL(store.baseUrl).hostname.replace(/^www\./, ""))
+  if (![store.baseUrl, store.shopifyUrl].some((base) => url.hostname.replace(/^www\./, "") === new URL(base).hostname.replace(/^www\./, "")))
     throw new Error(`collection URL does not belong to ${store.name}`);
   const match = url.pathname.match(/\/collections\/([^/]+)/);
   if (!match) throw new Error("collection URL must contain /collections/<handle>");

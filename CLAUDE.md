@@ -12,7 +12,7 @@ node dist/cli.js --help
 
 ## Architecture
 
-- `api/client.ts` is the single network boundary and owns timeouts, browser headers, retries, and HTTP errors.
+- `api/client.ts` is the single network boundary and owns bounded concurrency, timeouts, retries, HTTP errors, and CycleTLS fallback when Shopify challenges Node's TLS fingerprint.
 - `api/shopify.ts` implements shared Shopify storefront requests and narrowly scoped search-result extraction.
 - `api/stores.ts` is the store registry and alias resolver.
 - `core.ts` contains framework-neutral search, product bundle, collection, normalization, and sorting operations.

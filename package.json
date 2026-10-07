@@ -1,6 +1,6 @@
 {
   "name": "baby-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "CLI for searching and inspecting products from Israeli baby stores",
   "type": "module",
   "bin": { "baby-cli": "dist/cli.js" },
@@ -15,6 +15,7 @@
   "dependencies": {
     "cheerio": "^1.1.2",
     "commander": "^14.0.0",
+    "cycletls": "^2.0.5",
     "turndown": "^7.2.0",
     "yaml": "^2.8.3"
   },

@@ -50,7 +50,7 @@ function variantCard(variant: ShopifyVariant, source: "cents" | "decimal"): unkn
   const regular = cents(variant.compare_at_price);
   const options = variant.options ?? [variant.option1, variant.option2, variant.option3].filter((value): value is string => Boolean(value));
   return {
-    id: String(variant.id), title: variant.public_title || variant.title || undefined,
+    id: String(variant.id), ...((variant.public_title || variant.title) && (variant.public_title || variant.title) !== "Default Title" ? { title: variant.public_title || variant.title } : {}),
     ...(options.length && !(options.length === 1 && options[0] === "Default Title") ? { options } : {}),
     ...(variant.sku ? { sku: variant.sku } : {}), ...(variant.barcode ? { barcode: variant.barcode } : {}),
     price: money(price, source), ...(regular && price !== undefined && regular > price ? { regular_price: money(regular, source) } : {}),
@@ -73,6 +73,20 @@ export function productCard(store: Store, product: ShopifyProduct, details = fal
   };
 }
 
+function numericCardPrice(product: Record<string, unknown>): number {
+  const value = Number(String(product.price ?? "").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(value) && product.price !== null ? value : Infinity;
+}
+
+function sortCards(products: Record<string, unknown>[], sort?: string): void {
+  if (sort === "price") products.sort((a, b) => numericCardPrice(a) - numericCardPrice(b));
+  if (sort === "price-desc") products.sort((a, b) => {
+    const left = numericCardPrice(a); const right = numericCardPrice(b);
+    if (!Number.isFinite(left)) return 1; if (!Number.isFinite(right)) return -1; return right - left;
+  });
+  if (sort === "discount") products.sort((a, b) => Number(b.discount_percent ?? 0) - Number(a.discount_percent ?? 0));
+}
+
 export async function searchProducts(input: { query: string; stores?: string; limit?: number; inStock?: boolean; details?: boolean; sort?: string }): Promise<unknown> {
   const query = input.query.trim();
   if (!query) throw new Error("search query cannot be empty");
@@ -81,23 +95,20 @@ export async function searchProducts(input: { query: string; stores?: string; li
   const results = await Promise.all(stores.map(async (store) => {
     try {
       const handles = await searchHandles(store, query);
-      const inspectLimit = Math.min(handles.length, Math.max(10, Math.min(40, limit * 2)));
+      const inspectLimit = Math.min(handles.length, Math.max(4, Math.min(24, limit * 2)));
       const inspectedHandles = handles.slice(0, inspectLimit);
       const settled = await Promise.allSettled(inspectedHandles.map((handle) => fetchProduct(store, handle)));
       let products = settled.flatMap((result) => result.status === "fulfilled" && matchesQuery(result.value, query) ? [productCard(store, result.value, input.details)] : []);
       if (input.inStock) products = products.filter((product) => product.in_stock);
       const matched = products.length;
-      const price = (product: Record<string, unknown>) => Number(String(product.price ?? "").replace(/[^0-9.]/g, "")) || Infinity;
-      if (input.sort === "price") products.sort((a, b) => price(a) - price(b));
-      if (input.sort === "price-desc") products.sort((a, b) => price(b) - price(a));
-      if (input.sort === "discount") products.sort((a, b) => Number(b.discount_percent ?? 0) - Number(a.discount_percent ?? 0));
+      sortCards(products, input.sort);
       const failed = settled.filter((result) => result.status === "rejected").length;
       const incomplete = inspectLimit < handles.length || failed > 0;
-      return { store: store.id, name: store.name, candidates: handles.length, inspected: inspectLimit, matched, returned: Math.min(products.length, limit), products: products.slice(0, limit), ...(incomplete ? { complete: false } : {}), ...(failed ? { products_failed: failed } : {}) };
+      return { store: store.id, name: store.name, source_page: 1, page_candidates: handles.length, inspected: inspectLimit, matched, returned: Math.min(products.length, limit), products: products.slice(0, limit), ...(incomplete ? { complete: false } : {}), ...(failed ? { products_failed: failed } : {}) };
     } catch (error) { return { store: store.id, name: store.name, error: error instanceof Error ? error.message : String(error), products: [] }; }
   }));
   const failedStores = results.filter((result) => "error" in result).length;
-  if (failedStores === results.length) throw new Error(`search failed for all ${results.length} stores`);
+  if (failedStores === results.length) throw new Error(`search failed for all ${results.length} stores: ${results.map((result) => "error" in result ? `${result.store}: ${result.error}` : "").filter(Boolean).join("; ")}`);
   return { query, ...(failedStores ? { partial: true, stores_failed: failedStores } : {}), stores: results };
 }
 
@@ -123,6 +134,7 @@ export async function productInfo(storeValue: string, productValue: string): Pro
 export async function listCollections(storeValue: string, input: { page?: number; limit?: number; query?: string }): Promise<unknown> {
   const store = getStore(storeValue);
   const page = input.page ?? 1; const limit = input.limit ?? 50;
+  if (input.query !== undefined && !input.query.trim()) throw new Error("collection query cannot be empty");
   if (input.query && page !== 1) throw new Error("--page cannot be combined with --query; filtered collection search scans all pages");
   if (!input.query && limit > 250) throw new Error("collection page limit cannot exceed Shopify's maximum of 250");
   const all = input.query ? await allCollections(store) : undefined;
@@ -160,14 +172,16 @@ export async function searchCollections(queryValue: string, storesValue = "all",
     } catch (error) { return { store: store.id, error: error instanceof Error ? error.message : String(error), collections: [] }; }
   }));
   const failedStores = results.filter((result) => "error" in result).length;
-  if (failedStores === results.length) throw new Error(`collection search failed for all ${results.length} stores`);
+  if (failedStores === results.length) throw new Error(`collection search failed for all ${results.length} stores: ${results.map((result) => "error" in result ? `${result.store}: ${result.error}` : "").filter(Boolean).join("; ")}`);
   return { query: queryValue.trim(), ...(failedStores ? { partial: true, stores_failed: failedStores } : {}), stores: results };
 }
 
 export async function collectionProducts(storeValue: string, collection: string, input: { page?: number; limit?: number; allPages?: boolean; inStock?: boolean; details?: boolean; sort?: string }): Promise<unknown> {
   const store = getStore(storeValue); const page = input.page ?? 1; const limit = input.limit ?? 20;
+  if (input.allPages && page !== 1) throw new Error("--page cannot be combined with --all-pages");
   if (!input.allPages && limit > 250) throw new Error("collection page limit cannot exceed Shopify's maximum of 250; use --all-pages");
-  try { await fetchCollection(store, collection); }
+  let metadata;
+  try { metadata = await fetchCollection(store, collection); }
   catch (error) {
     if (error instanceof HttpError && error.status === 404) throw new Error(`no collection "${collection}" found at ${store.name}`);
     throw error;
@@ -184,13 +198,7 @@ export async function collectionProducts(storeValue: string, collection: string,
   const unique = [...new Map(raw.map((product) => [String(product.id), product])).values()];
   let products = unique.map((product) => productCard(store, product, false, "decimal"));
   if (input.inStock) products = products.filter((product) => product.in_stock);
-  const numericPrice = (product: Record<string, unknown>) => Number(String(product.price ?? "").replace(/[^0-9.]/g, "")) || Infinity;
-  if (input.sort === "price") products.sort((a, b) => numericPrice(a) - numericPrice(b));
-  if (input.sort === "price-desc") products.sort((a, b) => {
-    const left = numericPrice(a); const right = numericPrice(b);
-    if (!Number.isFinite(left)) return 1; if (!Number.isFinite(right)) return -1; return right - left;
-  });
-  if (input.sort === "discount") products.sort((a, b) => Number(b.discount_percent ?? 0) - Number(a.discount_percent ?? 0));
+  sortCards(products, input.sort);
   const selected = products.slice(0, limit);
   let detailsFailed = 0;
   if (input.details) {
@@ -198,7 +206,8 @@ export async function collectionProducts(storeValue: string, collection: string,
     detailsFailed = hydrated.filter((result) => result.status === "rejected").length;
     products = hydrated.flatMap((result, index) => result.status === "fulfilled" ? [productCard(store, result.value, true)] : [selected[index]]);
   } else products = selected;
-  return { store: store.id, collection, ...(input.allPages ? { fetched: unique.length, complete } : { page }), matched: input.inStock ? unique.filter((product) => product.variants.some((variant) => variant.available)).length : unique.length, returned: products.length, ...(detailsFailed ? { details_failed: detailsFailed, complete: false } : {}), products };
+  const reported = metadata.products_count;
+  return { store: store.id, collection: metadata.handle, ...(reported !== undefined ? { reported_products: reported } : {}), ...(input.allPages ? { fetched: unique.length, pagination_complete: complete, ...(reported !== undefined ? { count_matches_reported: reported === unique.length } : {}) } : { page }), matched: input.inStock ? unique.filter((product) => product.variants.some((variant) => variant.available)).length : unique.length, returned: products.length, ...(detailsFailed ? { details_failed: detailsFailed, details_complete: false } : {}), products };
 }
 
 export function storesList(): unknown {

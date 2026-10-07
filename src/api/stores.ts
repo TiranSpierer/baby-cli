@@ -5,15 +5,16 @@ export interface Store {
   id: StoreId;
   name: string;
   baseUrl: string;
+  shopifyUrl: string;
   searchSelector?: string;
 }
 
 export const STORES: Record<StoreId, Store> = {
-  shilav: { id: "shilav", name: "Shilav", baseUrl: "https://www.shilav.co.il" },
-  "baby-star": { id: "baby-star", name: "Baby Star", baseUrl: "https://www.baby-star.co.il" },
-  motsesim: { id: "motsesim", name: "Motsesim", baseUrl: "https://www.motsesim.co.il" },
-  agalease: { id: "agalease", name: "Agalease", baseUrl: "https://www.agalease-baby.co.il" },
-  mybaby: { id: "mybaby", name: "My Baby", baseUrl: "https://www.mybaby.co.il", searchSelector: "#SearchLoop a[href*='/products/']" },
+  shilav: { id: "shilav", name: "Shilav", baseUrl: "https://www.shilav.co.il", shopifyUrl: "https://shilav-prod.myshopify.com" },
+  "baby-star": { id: "baby-star", name: "Baby Star", baseUrl: "https://www.baby-star.co.il", shopifyUrl: "https://babystarisrael.myshopify.com" },
+  motsesim: { id: "motsesim", name: "Motsesim", baseUrl: "https://www.motsesim.co.il", shopifyUrl: "https://motsesim.myshopify.com" },
+  agalease: { id: "agalease", name: "Agalease", baseUrl: "https://www.agalease-baby.co.il", shopifyUrl: "https://agalease-baby.myshopify.com" },
+  mybaby: { id: "mybaby", name: "My Baby", baseUrl: "https://www.mybaby.co.il", shopifyUrl: "https://my-baby-yarka.myshopify.com", searchSelector: "#SearchLoop a[href*='/products/']" },
 };
 
 const ALIASES: Record<string, StoreId> = {

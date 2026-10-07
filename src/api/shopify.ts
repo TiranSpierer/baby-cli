@@ -4,8 +4,8 @@ import type { Store } from "./stores.js";
 import type { ShopifyCollection, ShopifyProduct } from "../types/shopify.js";
 import { extractCollectionHandle, extractHandle } from "../text.js";
 
-function endpoint(store: Store, path: string, params?: Record<string, string | number>): string {
-  const url = new URL(path, store.baseUrl);
+function endpoint(store: Store, path: string, params?: Record<string, string | number>, storefront = false): string {
+  const url = new URL(path, storefront ? store.baseUrl : store.shopifyUrl);
   for (const [key, value] of Object.entries(params ?? {})) url.searchParams.set(key, String(value));
   return url.toString();
 }
@@ -50,7 +50,7 @@ export function extractSearchHandles(html: string, store: Store): string[] {
 }
 
 export async function searchHandles(store: Store, query: string): Promise<string[]> {
-  const html = await getText(endpoint(store, "/search", { q: query, type: "product", "options[prefix]": "last" }));
+  const html = await getText(endpoint(store, "/search", { q: query, type: "product", "options[prefix]": "last" }, true));
   return extractSearchHandles(html, store);
 }
 
