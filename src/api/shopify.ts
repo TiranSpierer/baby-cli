@@ -2,7 +2,7 @@ import { load } from "cheerio";
 import { getJson, getText } from "./client.js";
 import type { Store } from "./stores.js";
 import type { ShopifyCollection, ShopifyProduct } from "../types/shopify.js";
-import { extractHandle } from "../text.js";
+import { extractCollectionHandle, extractHandle } from "../text.js";
 
 function endpoint(store: Store, path: string, params?: Record<string, string | number>): string {
   const url = new URL(path, store.baseUrl);
@@ -29,7 +29,9 @@ export function extractSearchHandles(html: string, store: Store): string[] {
     const url = new URL(href, store.baseUrl);
     const match = url.pathname.match(/\/products\/([^/]+)/);
     const position = Number(url.searchParams.get("_pos"));
-    if (match && Number.isInteger(position) && position > 0 && !positioned.has(position)) positioned.set(position, decodeURIComponent(match[1]));
+    if (match && Number.isInteger(position) && position > 0 && !positioned.has(position)) {
+      try { positioned.set(position, decodeURIComponent(match[1])); } catch { /* Ignore a malformed retailer link. */ }
+    }
   });
   if (positioned.size) return [...positioned.entries()].sort(([a], [b]) => a - b).map(([, handle]) => handle);
 
@@ -40,7 +42,8 @@ export function extractSearchHandles(html: string, store: Store): string[] {
     if (!href) return;
     const match = new URL(href, store.baseUrl).pathname.match(/\/products\/([^/]+)/);
     if (!match) return;
-    const handle = decodeURIComponent(match[1]);
+    let handle: string;
+    try { handle = decodeURIComponent(match[1]); } catch { return; }
     if (!seen.has(handle)) { seen.add(handle); handles.push(handle); }
   });
   return handles;
@@ -56,9 +59,15 @@ export async function fetchCollections(store: Store, page: number, limit: number
   return data.collections ?? [];
 }
 
+export async function fetchCollection(store: Store, collection: string): Promise<ShopifyCollection> {
+  const handle = extractCollectionHandle(collection, store);
+  const data = await getJson<{ collection?: ShopifyCollection }>(endpoint(store, `/collections/${encodeURIComponent(handle)}.json`));
+  if (!data.collection) throw new Error(`${store.name} returned an invalid collection response`);
+  return data.collection;
+}
+
 export async function fetchCollectionProducts(store: Store, collection: string, page: number, limit: number): Promise<ShopifyProduct[]> {
-  const handle = collection.trim().replace(/^.*\/collections\//, "").split(/[/?#]/)[0];
-  if (!handle) throw new Error("collection handle cannot be empty");
-  const data = await getJson<{ products?: ShopifyProduct[] }>(endpoint(store, `/collections/${encodeURIComponent(decodeURIComponent(handle))}/products.json`, { page, limit }));
+  const handle = extractCollectionHandle(collection, store);
+  const data = await getJson<{ products?: ShopifyProduct[] }>(endpoint(store, `/collections/${encodeURIComponent(handle)}/products.json`, { page, limit }));
   return data.products ?? [];
 }

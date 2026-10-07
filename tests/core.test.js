@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractSearchHandles } from "../dist/api/shopify.js";
 import { getStore, selectStores } from "../dist/api/stores.js";
-import { extractHandle, htmlToMarkdown, money } from "../dist/text.js";
+import { extractCollectionHandle, extractHandle, htmlToMarkdown, money } from "../dist/text.js";
 import { productCard } from "../dist/core.js";
 
 test("store aliases and comma-separated selection are normalized", () => {
@@ -18,9 +18,20 @@ test("product handles are accepted directly or extracted from matching URLs", ()
   assert.throws(() => extractHandle("https://example.com/products/x", store), /does not belong/);
 });
 
+test("collection handles validate full URL ownership", () => {
+  const store = getStore("baby-star");
+  assert.equal(extractCollectionHandle("https://www.baby-star.co.il/collections/%D7%90%D7%9E%D7%91%D7%98%D7%99%D7%95%D7%AA?sort=price", store), "אמבטיות");
+  assert.throws(() => extractCollectionHandle("https://example.com/collections/x", store), /does not belong/);
+});
+
 test("search handles use Shopify positions, deduplicate, and preserve relevance", () => {
   const html = '<a href="/products/b?_pos=2&_ss=r">B</a><a href="/products/a?_pos=1&_ss=r">A</a><a href="/products/a?_pos=1&_ss=r">A2</a>';
   assert.deepEqual(extractSearchHandles(html, getStore("shilav")), ["a", "b"]);
+});
+
+test("malformed retailer search links are ignored", () => {
+  const html = '<a href="/products/bad%ZZ?_pos=1&_ss=r">bad</a><a href="/products/good?_pos=2&_ss=r">good</a>';
+  assert.deepEqual(extractSearchHandles(html, getStore("shilav")), ["good"]);
 });
 
 test("My Baby search fallback stays inside the result grid", () => {
@@ -41,6 +52,15 @@ test("product cards preserve sale semantics, variants, barcode, and availability
 test("text and money formatting retain Hebrew and decimals", () => {
   assert.equal(htmlToMarkdown("<p>אמבטיה <strong>טובה</strong></p>"), "אמבטיה **טובה**");
   assert.equal(money(6990), "₪69.90"); assert.equal(money("69.90", "decimal"), "₪69.90");
+});
+
+test("missing upstream prices are not represented as free", () => {
+  const card = productCard(getStore("shilav"), { id: 1, title: "Unknown price", handle: "unknown", variants: [{ id: 2, available: true, price: null }] });
+  assert.equal(card.price, null);
+});
+
+test("malformed percent encoding has a contextual input error", () => {
+  assert.throws(() => extractHandle("bad%ZZ", getStore("shilav")), /invalid percent-encoding in product handle/);
 });
 
 test("collection product cards interpret Shopify JSON prices as shekels", () => {

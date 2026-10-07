@@ -31,5 +31,7 @@ See [`docs/SHOPIFY.md`](docs/SHOPIFY.md) for storefront endpoint semantics and u
 - Never describe boolean variant availability as an exact inventory quantity.
 - Never infer equivalent products solely from similar titles, and never invent a value-for-money score.
 - Keep search extraction scoped to actual result markers or a store-specific result container.
+- Prefer Shopify collection JSON for category discovery and comparison. Free-text search is the only operation that reads storefront HTML.
+- Bound request concurrency and candidate hydration; Shopify rate-limits bursts across its hosted stores.
 - Update README for user-visible changes and `docs/SHOPIFY.md` for source-behavior discoveries.
 - Run `npm test` and representative live commands for every supported store.

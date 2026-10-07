@@ -1,6 +1,6 @@
 {
   "name": "baby-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI for searching and inspecting products from Israeli baby stores",
   "type": "module",
   "bin": { "baby-cli": "dist/cli.js" },

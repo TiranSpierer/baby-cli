@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { fetchCollectionProducts, fetchCollections, fetchProduct, fetchRawProduct, searchHandles } from "./api/shopify.js";
+import { fetchCollection, fetchCollectionProducts, fetchCollections, fetchProduct, fetchRawProduct, searchHandles } from "./api/shopify.js";
 import { HttpError } from "./api/client.js";
 import { selectStores, getStore, STORE_IDS, type Store } from "./api/stores.js";
 import { atomicWrite, productDirectory } from "./files.js";
@@ -8,6 +8,7 @@ import { htmlToMarkdown, money } from "./text.js";
 import type { ShopifyProduct, ShopifyVariant } from "./types/shopify.js";
 
 function cents(value: number | string | null | undefined): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
 }
@@ -26,7 +27,7 @@ function matchesQuery(product: ShopifyProduct, query: string): boolean {
   const generic = new Set(["baby", "babies", "תינוק", "תינוקות", "לתינוק", "לתינוקות"]);
   const tokens = query.toLocaleLowerCase("he").split(/\s+/).filter((token) => token.length >= 2 && !generic.has(token));
   const haystack = searchText(product);
-  return tokens.length === 0 || tokens.some((token) => haystack.includes(token));
+  return tokens.length === 0 || tokens.every((token) => haystack.includes(token));
 }
 
 function priceFacts(product: ShopifyProduct, source: "cents" | "decimal") {
@@ -80,7 +81,9 @@ export async function searchProducts(input: { query: string; stores?: string; li
   const results = await Promise.all(stores.map(async (store) => {
     try {
       const handles = await searchHandles(store, query);
-      const settled = await Promise.allSettled(handles.map((handle) => fetchProduct(store, handle)));
+      const inspectLimit = Math.min(handles.length, Math.max(10, Math.min(40, limit * 2)));
+      const inspectedHandles = handles.slice(0, inspectLimit);
+      const settled = await Promise.allSettled(inspectedHandles.map((handle) => fetchProduct(store, handle)));
       let products = settled.flatMap((result) => result.status === "fulfilled" && matchesQuery(result.value, query) ? [productCard(store, result.value, input.details)] : []);
       if (input.inStock) products = products.filter((product) => product.in_stock);
       const matched = products.length;
@@ -88,10 +91,14 @@ export async function searchProducts(input: { query: string; stores?: string; li
       if (input.sort === "price") products.sort((a, b) => price(a) - price(b));
       if (input.sort === "price-desc") products.sort((a, b) => price(b) - price(a));
       if (input.sort === "discount") products.sort((a, b) => Number(b.discount_percent ?? 0) - Number(a.discount_percent ?? 0));
-      return { store: store.id, name: store.name, candidates: handles.length, matched, returned: Math.min(products.length, limit), products: products.slice(0, limit), ...(settled.some((result) => result.status === "rejected") ? { incomplete: true } : {}) };
+      const failed = settled.filter((result) => result.status === "rejected").length;
+      const incomplete = inspectLimit < handles.length || failed > 0;
+      return { store: store.id, name: store.name, candidates: handles.length, inspected: inspectLimit, matched, returned: Math.min(products.length, limit), products: products.slice(0, limit), ...(incomplete ? { complete: false } : {}), ...(failed ? { products_failed: failed } : {}) };
     } catch (error) { return { store: store.id, name: store.name, error: error instanceof Error ? error.message : String(error), products: [] }; }
   }));
-  return { query, stores: results };
+  const failedStores = results.filter((result) => "error" in result).length;
+  if (failedStores === results.length) throw new Error(`search failed for all ${results.length} stores`);
+  return { query, ...(failedStores ? { partial: true, stores_failed: failedStores } : {}), stores: results };
 }
 
 export async function productInfo(storeValue: string, productValue: string): Promise<unknown> {
@@ -116,21 +123,26 @@ export async function productInfo(storeValue: string, productValue: string): Pro
 export async function listCollections(storeValue: string, input: { page?: number; limit?: number; query?: string }): Promise<unknown> {
   const store = getStore(storeValue);
   const page = input.page ?? 1; const limit = input.limit ?? 50;
-  let collections = input.query ? await allCollections(store) : await fetchCollections(store, page, Math.min(limit, 250));
+  if (input.query && page !== 1) throw new Error("--page cannot be combined with --query; filtered collection search scans all pages");
+  if (!input.query && limit > 250) throw new Error("collection page limit cannot exceed Shopify's maximum of 250");
+  const all = input.query ? await allCollections(store) : undefined;
+  let collections = all ? all.collections : await fetchCollections(store, page, Math.min(limit, 250));
   const query = input.query?.trim().toLowerCase();
   if (query) collections = collections.filter((collection) => `${collection.title} ${collection.handle}`.toLowerCase().includes(query));
   collections = collections.slice(0, limit);
-  return { store: store.id, ...(input.query ? {} : { page }), returned: collections.length, collections: collections.map((collection) => collectionCard(store, collection)) };
+  return { store: store.id, ...(input.query ? { complete: all?.complete } : { page }), returned: collections.length, collections: collections.map((collection) => collectionCard(store, collection)) };
 }
 
 async function allCollections(store: Store) {
   const result = [];
+  let complete = true;
   for (let page = 1; page <= 20; page++) {
     const collections = await fetchCollections(store, page, 250);
     result.push(...collections);
     if (collections.length < 250) break;
+    if (page === 20) complete = false;
   }
-  return result;
+  return { collections: result, complete };
 }
 
 function collectionCard(store: Store, collection: Awaited<ReturnType<typeof fetchCollections>>[number]) {
@@ -141,16 +153,52 @@ export async function searchCollections(queryValue: string, storesValue = "all",
   const query = queryValue.trim().toLocaleLowerCase("he");
   if (!query) throw new Error("collection query cannot be empty");
   const results = await Promise.all(selectStores(storesValue).map(async (store) => {
-    const collections = (await allCollections(store)).filter((collection) => `${collection.title} ${collection.handle}`.toLocaleLowerCase("he").includes(query));
-    return { store: store.id, matched: collections.length, returned: Math.min(collections.length, limit), collections: collections.slice(0, limit).map((collection) => collectionCard(store, collection)) };
+    try {
+      const all = await allCollections(store);
+      const collections = all.collections.filter((collection) => `${collection.title} ${collection.handle}`.toLocaleLowerCase("he").includes(query));
+      return { store: store.id, complete: all.complete, matched: collections.length, returned: Math.min(collections.length, limit), collections: collections.slice(0, limit).map((collection) => collectionCard(store, collection)) };
+    } catch (error) { return { store: store.id, error: error instanceof Error ? error.message : String(error), collections: [] }; }
   }));
-  return { query: queryValue.trim(), stores: results };
+  const failedStores = results.filter((result) => "error" in result).length;
+  if (failedStores === results.length) throw new Error(`collection search failed for all ${results.length} stores`);
+  return { query: queryValue.trim(), ...(failedStores ? { partial: true, stores_failed: failedStores } : {}), stores: results };
 }
 
-export async function collectionProducts(storeValue: string, collection: string, input: { page?: number; limit?: number }): Promise<unknown> {
+export async function collectionProducts(storeValue: string, collection: string, input: { page?: number; limit?: number; allPages?: boolean; inStock?: boolean; details?: boolean; sort?: string }): Promise<unknown> {
   const store = getStore(storeValue); const page = input.page ?? 1; const limit = input.limit ?? 20;
-  const products = await fetchCollectionProducts(store, collection, page, Math.min(limit, 250));
-  return { store: store.id, collection, page, returned: products.length, products: products.map((product) => productCard(store, product, false, "decimal")) };
+  if (!input.allPages && limit > 250) throw new Error("collection page limit cannot exceed Shopify's maximum of 250; use --all-pages");
+  try { await fetchCollection(store, collection); }
+  catch (error) {
+    if (error instanceof HttpError && error.status === 404) throw new Error(`no collection "${collection}" found at ${store.name}`);
+    throw error;
+  }
+  let raw: ShopifyProduct[] = []; let complete = true;
+  if (input.allPages) {
+    for (let current = 1; current <= 50; current++) {
+      const batch = await fetchCollectionProducts(store, collection, current, 250);
+      raw.push(...batch);
+      if (batch.length < 250) break;
+      if (current === 50) complete = false;
+    }
+  } else raw = await fetchCollectionProducts(store, collection, page, Math.min(limit, 250));
+  const unique = [...new Map(raw.map((product) => [String(product.id), product])).values()];
+  let products = unique.map((product) => productCard(store, product, false, "decimal"));
+  if (input.inStock) products = products.filter((product) => product.in_stock);
+  const numericPrice = (product: Record<string, unknown>) => Number(String(product.price ?? "").replace(/[^0-9.]/g, "")) || Infinity;
+  if (input.sort === "price") products.sort((a, b) => numericPrice(a) - numericPrice(b));
+  if (input.sort === "price-desc") products.sort((a, b) => {
+    const left = numericPrice(a); const right = numericPrice(b);
+    if (!Number.isFinite(left)) return 1; if (!Number.isFinite(right)) return -1; return right - left;
+  });
+  if (input.sort === "discount") products.sort((a, b) => Number(b.discount_percent ?? 0) - Number(a.discount_percent ?? 0));
+  const selected = products.slice(0, limit);
+  let detailsFailed = 0;
+  if (input.details) {
+    const hydrated = await Promise.allSettled(selected.map((product) => fetchProduct(store, String(product.handle))));
+    detailsFailed = hydrated.filter((result) => result.status === "rejected").length;
+    products = hydrated.flatMap((result, index) => result.status === "fulfilled" ? [productCard(store, result.value, true)] : [selected[index]]);
+  } else products = selected;
+  return { store: store.id, collection, ...(input.allPages ? { fetched: unique.length, complete } : { page }), matched: input.inStock ? unique.filter((product) => product.variants.some((variant) => variant.available)).length : unique.length, returned: products.length, ...(detailsFailed ? { details_failed: detailsFailed, complete: false } : {}), products };
 }
 
 export function storesList(): unknown {

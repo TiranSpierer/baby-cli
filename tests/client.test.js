@@ -9,3 +9,15 @@ test("non-retryable HTTP errors are attempted once", async (context) => {
   await assert.rejects(() => request("https://example.test/missing"), /HTTP 404/);
   assert.equal(attempts, 1);
 });
+
+test("network concurrency is globally bounded", async (context) => {
+  const original = globalThis.fetch; let active = 0; let peak = 0;
+  globalThis.fetch = async () => {
+    active++; peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    active--; return new Response("ok", { status: 200 });
+  };
+  context.after(() => { globalThis.fetch = original; });
+  await Promise.all(Array.from({ length: 12 }, (_, index) => request(`https://example.test/${index}`)));
+  assert.equal(peak, 4);
+});

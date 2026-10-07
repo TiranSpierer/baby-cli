@@ -4,7 +4,8 @@ The supported stores use Shopify, but only their public storefront surfaces are 
 
 - `/search?q=...&type=product` supplies ordered search-result handles. Shopify marks organic result links with `_pos` and `_ss=r`; My Baby uses a scoped `#SearchLoop` fallback.
 - `/products/<handle>.js` supplies current prices in agorot, variants, availability, SKU, barcode when published, media, tags, and HTML description.
-- `/collections.json` and `/collections/<handle>/products.json` supply category browsing. Collection `products_count` is upstream metadata and can disagree with the products endpoint.
+- `/collections.json` and `/collections/<handle>/products.json` supply category browsing. Collection `products_count` is upstream metadata and frequently disagrees substantially with the products endpoint.
+- Shopify caps collection-product pages at 250. Complete collection operations paginate until the endpoint returns a short page and report whether the safety cap was reached.
 - Public storefront data exposes availability, not exact inventory quantities.
 - `compare_at_price` represents a regular/reference price only when it is positive and greater than the active price. A zero value is not a sale.
 - Product summary prices use available variants whenever at least one variant is purchasable; unavailable variant prices remain visible in detailed variant output.

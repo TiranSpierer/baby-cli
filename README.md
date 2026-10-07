@@ -25,7 +25,7 @@ baby-cli search "עגלה" --store all --limit 10 --sort price --details
 baby-cli search "אמבטיה מתקפלת" --sort discount
 ```
 
-`--limit` applies per store. Relevance is the default storefront order; price and discount sorting happen independently inside each store so the source remains visible. Search prices and availability are hydrated from each product's current Shopify storefront data. `candidates` is the number of storefront results inspected; `matched` is the number remaining after relevance and availability filters.
+`--limit` applies per store. Relevance is the default storefront order; price and discount sorting happen independently inside each store so the source remains visible. Search prices and availability are hydrated from each product's current Shopify storefront data. `candidates` is the storefront result count, `inspected` is the bounded number hydrated, and `matched` is the number remaining after relevance and availability filters. `complete: false` means the storefront returned more candidates than were safely inspected or a product request failed.
 
 </details>
 
@@ -48,9 +48,10 @@ Product arguments accept a store handle or a full product URL from the selected 
 baby-cli collection search "אמבט" --store all
 baby-cli collection list shilav --query אמבט
 baby-cli collection products agalease outlet --limit 20
+baby-cli collection products baby-star "אמבטיות" --all-pages --in-stock --sort price --details
 ```
 
-Collection search uses each retailer's complete Shopify collection taxonomy rather than inferring categories from free-text results. Collection counts are labelled as retailer-reported because Shopify collection metadata can occasionally disagree with the collection-products endpoint.
+Collection search uses each retailer's Shopify collection taxonomy rather than inferring categories from free-text results. Use `--all-pages` when comparing an entire collection; sorting and availability filtering are then applied to the complete fetched set. Collection counts are labelled as retailer-reported because Shopify collection metadata frequently disagrees with the public collection-products endpoint.
 
 </details>
 
